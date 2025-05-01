@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>PDF Auto-Bookmarker</title>
+
+  <!-- Tailwind Play CDN – great for prototypes.
+       For production see https://tailwindcss.com/docs/installation -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- pdf-lib & pdf.js -->
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body{font-family:Inter,sans-serif}
+    .loader{border:4px solid #f3f3f3;border-top:4px solid #3498db;border-radius:50%;width:30px;height:30px;
+            animation:spin 1s linear infinite;display:none;margin:10px auto}
+    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-lg">
+    <h1 class="text-2xl font-bold mb-6 text-center text-gray-700">PDF Auto-Bookmarker</h1>
+
+    <label class="block mb-2 text-sm font-medium text-gray-600" for="pdfFile">Upload PDF report:</label>
+    <input id="pdfFile" type="file" accept="application/pdf"
+           class="mb-6 block w-full text-sm text-gray-500
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-md file:border-0
+                  file:text-sm file:font-semibold
+                  file:bg-blue-50 file:text-blue-700
+                  hover:file:bg-blue-100 cursor-pointer"/>
+
+    <button id="processButton" disabled
+            class="w-full mb-4 bg-blue-600 hover:bg-blue-700 
+                   text-white font-bold py-2 px-4 rounded-md
+                   transition disabled:opacity-50">
+      Add bookmarks
+    </button>
+
+    <div id="status"  class="text-center text-sm text-gray-600">Select a PDF file to begin.</div>
+    <div id="loader"  class="loader"></div>
+    <div id="downloadArea" class="mt-4 text-center"></div>
+  </div>
+
+  <script>
+    // ---------- Config ----------
+    // Each entry pairs the text that appears IN the PDF with the bookmark title you want.
+    const HEADER_DEFS = [
+      { search: "Executive Summary",            title: "Executive Summary" },
+      { search: "Notes & Recommendations",      title: "Device Notes/Repair Tracking (All Failed & Passed devices with notes)" },
+      { search: "Inspection & Testing",         title: "Inspection & Testing" },
+      { search: "Service Summary",              title: "Service Summary" },
+      { search: "Auxiliary Functions Testing",  title: "Auxiliary Functions Testing" },
+      { search: "Battery & Power Supply Testing", title: "Battery & Power Supply Testing" },
+      { search: "Inventory & Warranty Report",  title: "Inventory & Warranty Report" },
+      { search: "Zone Address Report",          title: "Zone Address Report" },
+      { search: "Discrepancy Report",           title: "Discrepancies (Failed Devices)" }
+    ];
+
+    // Build regexes once (case-insensitive, flexible whitespace between words).
+    const HEADER_REGEXES = HEADER_DEFS.map(h => {
+      const pat = h.search.trim()
+                         .split(/\s+/)
+                         .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+                         .join("\\s+");
+      return new RegExp("\\b" + pat + "\\b", "i");
+    });
+
+    // ---------- DOM ----------
+    const $file   = document.getElementById("pdfFile"),
+          $btn    = document.getElementById("processButton"),
+          $status = document.getElementById("status"),
+          $loader = document.getElementById("loader"),
+          $dl     = document.getElementById("downloadArea");
+
+    // ---------- pdf-lib shorthands ----------
+    const { PDFDocument, PDFName, PDFString, PDFNumber, PDFNull } = PDFLib;
+
+    // ---------- State ----------
+    let pdfFile, outName;
+
+    // ---------- UI events ----------
+    $file.addEventListener("change", async e => {
+      pdfFile = e.target.files[0];
+      if (!pdfFile || pdfFile.type !== "application/pdf") {
+        reset("Please choose a PDF.");
+        return;
+      }
+      outName = pdfFile.name.replace(/\.pdf$/i, "_bookmarked.pdf");
+      $status.textContent = `File selected: ${pdfFile.name}`;
+      $btn.disabled = false;
+      $dl.innerHTML = "";
+      await processPdf();        // auto-run
+    });
+    $btn.addEventListener("click", processPdf);
+
+    // ---------- Core ----------
+    async function processPdf() {
+      if (!$btn.disabled) disableUi(true);
+      try {
+        const buf   = await pdfFile.arrayBuffer();
+        const jsBuf = buf;          // for pdf.js
+        const libBuf = buf.slice(0); // clone for pdf-lib (avoid detached buffer)
+
+        upd("Scanning for headers…", true);
+        const marks = await findHeaders(jsBuf);
+        if (!marks.length) { upd("No matching headers found – nothing to bookmark.", false); return; }
+
+        upd("Injecting bookmarks…", true);
+        const doc = await PDFDocument.load(libBuf);
+        addBookmarks(doc, marks);
+
+        upd("Building file…", true);
+        const bytes = await doc.save();
+        link(bytes);
+        upd("Done! Your bookmarked PDF is ready.", false);
+      } catch (e) {
+        console.error(e);
+        upd("Error – see console.", false);
+      } finally {
+        disableUi(false);
+      }
+    }
+
+    async function findHeaders(data) {
+      const task = pdfjsLib.getDocument({ data });
+      const pdf  = await task.promise,
+            found = [],
+            seen  = new Set();
+
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const txt = (await (await pdf.getPage(p)).getTextContent())
+                    .items.map(i => i.str).join(" ");
+
+        HEADER_REGEXES.forEach((rx, i) => {
+          if (!seen.has(i) && rx.test(txt)) {
+            found.push({ title: HEADER_DEFS[i].title, pageIndex: p - 1 });
+            seen.add(i);
+          }
+        });
+      }
+      await pdf.destroy();
+      return found.sort((a, b) => a.pageIndex - b.pageIndex);
+    }
+
+    function addBookmarks(doc, marks) {
+      if (!marks.length) return;
+      const ctx      = doc.context,
+            pages    = doc.getPages(),
+            rootRef  = ctx.nextRef(),
+            items    = [];
+
+      const makeDest = pgRef => ctx.obj([pgRef, PDFName.of("XYZ"), PDFNull, PDFNull, PDFNull]);
+
+      marks.forEach(m => {
+        const pgRef = pages[m.pageIndex].ref,
+              ref   = ctx.nextRef();
+        ctx.assign(ref, ctx.obj({
+          Title : PDFString.of(m.title),
+          Parent: rootRef,
+          Dest  : makeDest(pgRef)
+        }));
+        items.push(ref);
+      });
+
+      // link Prev / Next
+      items.forEach((r, i) => {
+        const d = ctx.lookup(r);
+        if (i) d.set(PDFName.of("Prev"), items[i - 1]);
+        if (i < items.length - 1) d.set(PDFName.of("Next"), items[i + 1]);
+      });
+
+      ctx.assign(rootRef, ctx.obj({
+        Type : PDFName.of("Outlines"),
+        First: items[0],
+        Last : items[items.length - 1],
+        Count: PDFNumber.of(items.length)
+      }));
+      doc.catalog.set(PDFName.of("Outlines"), rootRef);
+      doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
+    }
+
+    // ---------- UI helpers ----------
+    const upd = (msg, spin) => {
+      $status.textContent = msg;
+      $loader.style.display = spin ? "block" : "none";
+    };
+    const disableUi = d => { $btn.disabled = d; $file.disabled = d; };
+    const reset = msg => {
+      $file.value = "";
+      $btn.disabled = true;
+      $status.textContent = msg;
+      $dl.innerHTML = "";
+    };
+    function link(bytes) {
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      const a   = document.createElement("a");
+      a.href = url;
+      a.download = outName;
+      a.textContent = `Download ${outName}`;
+      a.className = "inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md";
+      $dl.innerHTML = "";
+      $dl.appendChild(a);
+      a.addEventListener("click", () => setTimeout(() => URL.revokeObjectURL(url), 2000));
+    }
+  </script>
+</body>
+</html>
