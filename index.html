@@ -1,220 +1,487 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>PDF Auto-Bookmarker</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>PDF Auto-Bookmarker | Efficiently Add Outlines to PDFs</title>
+    <meta name="description" content="A web tool to automatically scan PDF documents for predefined section headers and add corresponding bookmarks (outlines). Upload your PDF and get a bookmarked version instantly."/>
+    <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Tailwind Play CDN – great for prototypes.
-       For production see https://tailwindcss.com/docs/installation -->
-  <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script> <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Configure pdf.js worker location
+        // Ensure this path is correct and accessible
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        } else {
+            console.error("pdf.js library not loaded correctly.");
+            // Optionally display an error to the user
+        }
+    </script>
 
-  <!-- pdf-lib & pdf.js -->
-  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1/dist/pdf-lib.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-  </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Use Tailwind utilities primarily, but define base styles here */
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Add subtle background pattern or keep it clean */
+            /* background-color: #f7fafc; */ /* Tailwind bg-gray-100 */
+        }
 
-  <style>
-    body{font-family:Inter,sans-serif}
-    .loader{border:4px solid #f3f3f3;border-top:4px solid #3498db;border-radius:50%;width:30px;height:30px;
-            animation:spin 1s linear infinite;display:none;margin:10px auto}
-    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
-  </style>
+        /* Custom focus styles for better accessibility */
+        *:focus-visible {
+            outline: 2px solid rgb(59 130 246 / 0.7); /* Equivalent to focus:ring-blue-500 */
+            outline-offset: 2px;
+        }
+
+        /* Use Tailwind's animation utilities for the loader */
+        .loader {
+            /* Defined using Tailwind classes directly on the element */
+        }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
-  <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-lg">
-    <h1 class="text-2xl font-bold mb-6 text-center text-gray-700">PDF Auto-Bookmarker</h1>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8">
+    <main class="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full max-w-lg border border-gray-200">
+        <header class="text-center mb-6 sm:mb-8">
+            <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">PDF Auto-Bookmarker</h1>
+            <p class="text-sm text-gray-500 mt-1">Upload a PDF report to automatically add bookmarks.</p>
+        </header>
 
-    <label class="block mb-2 text-sm font-medium text-gray-600" for="pdfFile">Upload PDF report:</label>
-    <input id="pdfFile" type="file" accept="application/pdf"
-           class="mb-6 block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded-md file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-blue-50 file:text-blue-700
-                  hover:file:bg-blue-100 cursor-pointer"/>
+        <form id="pdfForm" class="space-y-6">
+            <div>
+                <label class="block mb-2 text-sm font-medium text-gray-700" for="pdfFile">
+                    Select PDF Report
+                </label>
+                <input id="pdfFile" type="file" accept="application/pdf" required
+                       aria-describedby="fileHelpText"
+                       class="block w-full text-sm text-gray-600 border border-gray-300 rounded-lg cursor-pointer
+                              file:mr-4 file:py-2 file:px-4
+                              file:rounded-l-md file:border-0
+                              file:text-sm file:font-semibold
+                              file:bg-blue-50 file:text-blue-700
+                              hover:file:bg-blue-100
+                              focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 focus:border-blue-500">
+                <p id="fileHelpText" class="mt-1 text-xs text-gray-500">PDF files only.</p>
+            </div>
 
-    <button id="processButton" disabled
-            class="w-full mb-4 bg-blue-600 hover:bg-blue-700 
-                   text-white font-bold py-2 px-4 rounded-md
-                   transition disabled:opacity-50">
-      Add bookmarks
-    </button>
+            <button id="processButton" type="button" disabled
+                    class="w-full flex justify-center items-center bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
+                           text-white font-bold py-2.5 px-4 rounded-lg shadow-sm
+                           transition duration-150 ease-in-out
+                           disabled:opacity-50 disabled:cursor-not-allowed">
+                Add Bookmarks
+            </button>
+        </form>
 
-    <div id="status"  class="text-center text-sm text-gray-600">Select a PDF file to begin.</div>
-    <div id="loader"  class="loader"></div>
-    <div id="downloadArea" class="mt-4 text-center"></div>
-  </div>
+        <div id="statusArea" class="mt-6 text-center space-y-3">
+            <div id="loader" role="status" aria-live="polite" class="hidden mx-auto">
+                 <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                 <span class="sr-only">Processing...</span> </div>
+            <div id="statusMessage" aria-live="polite" class="text-sm text-gray-600 min-h-[1.25rem]">
+                Please select a PDF file to begin.
+            </div>
+             <div id="downloadArea" class="mt-4 min-h-[2.5rem]">
+                </div>
+        </div>
 
-  <script>
-    // ---------- Config ----------
-    // Each entry pairs the text that appears IN the PDF with the bookmark title you want.
-    const HEADER_DEFS = [
-      { search: "Executive Summary",            title: "Executive Summary" },
-      { search: "Notes & Recommendations",      title: "Device Notes/Repair Tracking (All Failed & Passed devices with notes)" },
-      { search: "Inspection & Testing",         title: "Inspection & Testing" },
-      { search: "Service Summary",              title: "Service Summary" },
-      { search: "Auxiliary Functions Testing",  title: "Auxiliary Functions Testing" },
-      { search: "Battery & Power Supply Testing", title: "Battery & Power Supply Testing" },
-      { search: "Inventory & Warranty Report",  title: "Inventory & Warranty Report" },
-      { search: "Zone Address Report",          title: "Zone Address Report" },
-      { search: "Discrepancy Report",           title: "Discrepancies (Failed Devices)" }
-    ];
+    </main>
 
-    // Build regexes once (case-insensitive, flexible whitespace between words).
-    const HEADER_REGEXES = HEADER_DEFS.map(h => {
-      const pat = h.search.trim()
-                         .split(/\s+/)
-                         .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-                         .join("\\s+");
-      return new RegExp("\\b" + pat + "\\b", "i");
-    });
+    <script>
+        // Wrap script in an IIFE or DOMContentLoaded to ensure DOM is ready and scope variables
+        document.addEventListener('DOMContentLoaded', () => {
 
-    // ---------- DOM ----------
-    const $file   = document.getElementById("pdfFile"),
-          $btn    = document.getElementById("processButton"),
-          $status = document.getElementById("status"),
-          $loader = document.getElementById("loader"),
-          $dl     = document.getElementById("downloadArea");
+            // ---------- Configuration ----------
+            // Defines the text patterns to search for within the PDF and the desired bookmark titles.
+            // Structure: { search: "Text in PDF", title: "Bookmark Title" }
+            const HEADER_DEFINITIONS = Object.freeze([ // Use Object.freeze for immutability
+                { search: "Executive Summary",           title: "Executive Summary" },
+                { search: "Notes & Recommendations",     title: "Device Notes(Repair Tracking)" },
+                { search: "Inspection & Testing",        title: "Inspection & Testing" },
+                { search: "Service Summary",             title: "Service Summary" },
+                { search: "Auxiliary Functions Testing", title: "Auxiliary Functions Testing" },
+                { search: "Battery & Power Supply Testing", title: "Battery & Power Supply Testing" },
+                { search: "Inventory & Warranty Report", title: "Inventory & Warranty Report" },
+                { search: "Zone Address Report",         title: "Zone Address Report" },
+                { search: "Discrepancy Report",          title: "Discrepancy Report (Failed Devices)" }
+                // Add more definitions as needed
+            ]);
 
-    // ---------- pdf-lib shorthands ----------
-    const { PDFDocument, PDFName, PDFString, PDFNumber, PDFNull } = PDFLib;
+            // Pre-compile regular expressions for efficiency.
+            // Case-insensitive matching with flexible whitespace between words.
+            const HEADER_REGEXES = HEADER_DEFINITIONS.map(h => {
+                // Escape regex special characters in the search string
+                const escapedSearch = h.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                // Create pattern allowing flexible whitespace between words
+                const pattern = escapedSearch.split(/\s+/).join("\\s+");
+                // Use word boundaries (\b) to avoid partial matches
+                return new RegExp("\\b" + pattern + "\\b", "i");
+            });
 
-    // ---------- State ----------
-    let pdfFile, outName;
+            // ---------- DOM Element References ----------
+            // Use descriptive variable names
+            const $pdfFileInput = document.getElementById("pdfFile");
+            const $processButton = document.getElementById("processButton");
+            const $statusMessage = document.getElementById("statusMessage");
+            const $loader = document.getElementById("loader");
+            const $downloadArea = document.getElementById("downloadArea");
 
-    // ---------- UI events ----------
-    $file.addEventListener("change", async e => {
-      pdfFile = e.target.files[0];
-      if (!pdfFile || pdfFile.type !== "application/pdf") {
-        reset("Please choose a PDF.");
-        return;
-      }
-      outName = pdfFile.name.replace(/\.pdf$/i, "_bookmarked.pdf");
-      $status.textContent = `File selected: ${pdfFile.name}`;
-      $btn.disabled = false;
-      $dl.innerHTML = "";
-      await processPdf();        // auto-run
-    });
-    $btn.addEventListener("click", processPdf);
+            // ---------- pdf-lib Shorthands ----------
+            // Destructure necessary functions/classes from the pdf-lib global object
+            let PDFDocument, PDFName, PDFString, PDFNumber, PDFNull;
+            if (typeof PDFLib !== 'undefined') {
+                 ({ PDFDocument, PDFName, PDFString, PDFNumber, PDFNull } = PDFLib);
+            } else {
+                console.error("pdf-lib library not loaded correctly.");
+                updateStatus("Error: Core PDF library failed to load. Please refresh.", false, true);
+                // Disable functionality if library is missing
+                $pdfFileInput.disabled = true;
+                // No need to get $processButton here, it's not usable anyway
+            }
 
-    // ---------- Core ----------
-    async function processPdf() {
-      if (!$btn.disabled) disableUi(true);
-      try {
-        const buf   = await pdfFile.arrayBuffer();
-        const jsBuf = buf;          // for pdf.js
-        const libBuf = buf.slice(0); // clone for pdf-lib (avoid detached buffer)
+            // ---------- Application State ----------
+            let currentPdfFile = null;
+            let outputFileName = "";
 
-        upd("Scanning for headers…", true);
-        const marks = await findHeaders(jsBuf);
-        if (!marks.length) { upd("No matching headers found – nothing to bookmark.", false); return; }
+            // ---------- Event Listeners ----------
+            $pdfFileInput.addEventListener("change", handleFileSelect);
+            $processButton.addEventListener("click", processPdf);
 
-        upd("Injecting bookmarks…", true);
-        const doc = await PDFDocument.load(libBuf);
-        addBookmarks(doc, marks);
+            // ---------- Event Handlers ----------
+            async function handleFileSelect(event) {
+                const file = event.target.files[0];
+                resetUIState(); // Reset UI before processing new file
 
-        upd("Building file…", true);
-        const bytes = await doc.save();
-        link(bytes);
-        upd("Done! Your bookmarked PDF is ready.", false);
-      } catch (e) {
-        console.error(e);
-        upd("Error – see console.", false);
-      } finally {
-        disableUi(false);
-      }
-    }
+                if (!file) {
+                    updateStatus("No file selected.", false);
+                    return;
+                }
 
-    async function findHeaders(data) {
-      const task = pdfjsLib.getDocument({ data });
-      const pdf  = await task.promise,
-            found = [],
-            seen  = new Set();
+                if (file.type !== "application/pdf") {
+                    updateStatus("Invalid file type. Please select a PDF.", false, true);
+                    $pdfFileInput.value = ""; // Clear the invalid selection
+                    return;
+                }
 
-      for (let p = 1; p <= pdf.numPages; p++) {
-        const txt = (await (await pdf.getPage(p)).getTextContent())
-                    .items.map(i => i.str).join(" ");
+                currentPdfFile = file;
+                // Create a clean filename for the output
+                const baseName = currentPdfFile.name.replace(/\.pdf$/i, "");
+                outputFileName = `${baseName}_bookmarked.pdf`;
 
-        HEADER_REGEXES.forEach((rx, i) => {
-          if (!seen.has(i) && rx.test(txt)) {
-            found.push({ title: HEADER_DEFS[i].title, pageIndex: p - 1 });
-            seen.add(i);
-          }
-        });
-      }
-      await pdf.destroy();
-      return found.sort((a, b) => a.pageIndex - b.pageIndex);
-    }
+                updateStatus(`File selected: ${currentPdfFile.name}. Ready to process.`, false);
+                $processButton.disabled = false;
 
-    function addBookmarks(doc, marks) {
-      if (!marks.length) return;
-      const ctx      = doc.context,
-            pages    = doc.getPages(),
-            rootRef  = ctx.nextRef(),
-            items    = [];
+                // --- Auto-run feature ---
+                // Consider if you *really* want to auto-run. It can be surprising.
+                // If keeping it, add a slight delay or clearer indication.
+                // For now, keeping original behavior:
+                 await processPdf();
+                // Alternative: Just enable the button and let the user click.
+                // updateStatus(`File selected: ${currentPdfFile.name}. Click 'Add Bookmarks'.`, false);
+                // $processButton.disabled = false;
+            }
 
-      const makeDest = pgRef => ctx.obj([pgRef, PDFName.of("XYZ"), PDFNull, PDFNull, PDFNull]);
+            // ---------- Core Logic ----------
+            /**
+             * Main function to process the selected PDF file.
+             */
+            async function processPdf() {
+                if (!currentPdfFile || $processButton.disabled) return; // Prevent processing if no file or already processing
 
-      marks.forEach(m => {
-        const pgRef = pages[m.pageIndex].ref,
-              ref   = ctx.nextRef();
-        ctx.assign(ref, ctx.obj({
-          Title : PDFString.of(m.title),
-          Parent: rootRef,
-          Dest  : makeDest(pgRef)
-        }));
-        items.push(ref);
-      });
+                disableUI(true);
+                updateStatus("Starting process...", true);
+                clearDownloadLink();
 
-      // link Prev / Next
-      items.forEach((r, i) => {
-        const d = ctx.lookup(r);
-        if (i) d.set(PDFName.of("Prev"), items[i - 1]);
-        if (i < items.length - 1) d.set(PDFName.of("Next"), items[i + 1]);
-      });
+                try {
+                    const fileBuffer = await readFileAsArrayBuffer(currentPdfFile);
 
-      ctx.assign(rootRef, ctx.obj({
-        Type : PDFName.of("Outlines"),
-        First: items[0],
-        Last : items[items.length - 1],
-        Count: PDFNumber.of(items.length)
-      }));
-      doc.catalog.set(PDFName.of("Outlines"), rootRef);
-      doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
-    }
+                    // Clone buffer for pdf-lib as pdf.js might detach it
+                    const pdfLibBuffer = fileBuffer.slice(0);
 
-    // ---------- UI helpers ----------
-    const upd = (msg, spin) => {
-      $status.textContent = msg;
-      $loader.style.display = spin ? "block" : "none";
-    };
-    const disableUi = d => { $btn.disabled = d; $file.disabled = d; };
-    const reset = msg => {
-      $file.value = "";
-      $btn.disabled = true;
-      $status.textContent = msg;
-      $dl.innerHTML = "";
-    };
-    function link(bytes) {
-      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      const a   = document.createElement("a");
-      a.href = url;
-      a.download = outName;
-      a.textContent = `Download ${outName}`;
-      a.className = "inline-block bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md";
-      $dl.innerHTML = "";
-      $dl.appendChild(a);
-      a.addEventListener("click", () => setTimeout(() => URL.revokeObjectURL(url), 2000));
-    }
-  </script>
+                    updateStatus("Scanning PDF for headers...", true);
+                    // Pass the original buffer to pdf.js
+                    const bookmarksToCreate = await findHeadersInPdf(fileBuffer);
+
+                    if (!bookmarksToCreate.length) {
+                        updateStatus("No matching headers found. No bookmarks were added.", false);
+                        disableUI(false); // Re-enable UI even if no bookmarks
+                        return;
+                    }
+
+                    updateStatus(`Found ${bookmarksToCreate.length} potential bookmark(s). Injecting...`, true);
+                    const pdfDoc = await PDFDocument.load(pdfLibBuffer);
+
+                    // Add the bookmarks using pdf-lib
+                    addBookmarksToPdf(pdfDoc, bookmarksToCreate);
+
+                    updateStatus("Saving bookmarked PDF...", true);
+                    const pdfBytes = await pdfDoc.save();
+
+                    // Create and display the download link
+                    createDownloadLink(pdfBytes);
+                    updateStatus("Success! Your bookmarked PDF is ready for download.", false);
+
+                } catch (error) {
+                    console.error("PDF Processing Error:", error);
+                    let userMessage = "An unexpected error occurred during processing.";
+                    if (error instanceof Error) {
+                        // Provide slightly more specific feedback for common issues
+                        if (error.message.includes("password")) {
+                             userMessage = "Error: Could not process password-protected PDF.";
+                        } else if (error.message.includes("Invalid PDF")) {
+                             userMessage = "Error: The selected file appears to be an invalid or corrupted PDF.";
+                        } else {
+                             userMessage = `Error: ${error.message}`; // Show general error message
+                        }
+                    }
+                    updateStatus(userMessage, false, true); // Indicate error state visually
+                    resetUIState(); // Reset to allow trying again with a different file
+                } finally {
+                    // Ensure UI is re-enabled regardless of success or failure, unless resetUIState handled it
+                     if ($pdfFileInput.disabled) { // Check if disableUI was called
+                       disableUI(false);
+                     }
+                }
+            }
+
+            /**
+             * Reads the selected File object into an ArrayBuffer.
+             * @param {File} file - The file object to read.
+             * @returns {Promise<ArrayBuffer>} A promise resolving with the ArrayBuffer.
+             */
+            function readFileAsArrayBuffer(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            /**
+             * Uses pdf.js to scan the PDF content for predefined headers.
+             * @param {ArrayBuffer} data - The PDF data as an ArrayBuffer.
+             * @returns {Promise<Array<{title: string, pageIndex: number}>>} A promise resolving with found bookmarks.
+             */
+            async function findHeadersInPdf(data) {
+                // Ensure pdfjsLib is available
+                 if (typeof pdfjsLib === 'undefined' || !pdfjsLib.getDocument) {
+                    throw new Error("pdf.js library is not available.");
+                 }
+
+                const loadingTask = pdfjsLib.getDocument({ data });
+                const pdfDocument = await loadingTask.promise;
+                const foundBookmarks = [];
+                const matchedHeaderIndices = new Set(); // Track which HEADER_DEFINITIONS have been found
+
+                try {
+                    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+                        const page = await pdfDocument.getPage(pageNum);
+                        const textContent = await page.getTextContent();
+                        // Concatenate text items, adding spaces for better regex matching across line breaks
+                        const pageText = textContent.items.map(item => item.str).join(' ');
+
+                        HEADER_REGEXES.forEach((regex, index) => {
+                            // Find only the *first* occurrence of each header type
+                            if (!matchedHeaderIndices.has(index) && regex.test(pageText)) {
+                                foundBookmarks.push({
+                                    title: HEADER_DEFINITIONS[index].title,
+                                    pageIndex: pageNum - 1 // 0-based index
+                                });
+                                matchedHeaderIndices.add(index); // Mark this header type as found
+                            }
+                        });
+                        // Optimization: If all headers are found, stop scanning
+                        if (matchedHeaderIndices.size === HEADER_DEFINITIONS.length) {
+                            break;
+                        }
+                    }
+                } finally {
+                    // Ensure the PDF document is destroyed to free up memory
+                    await pdfDocument.destroy();
+                }
+
+                // Sort bookmarks by page number
+                return foundBookmarks.sort((a, b) => a.pageIndex - b.pageIndex);
+            }
+
+            /**
+             * Uses pdf-lib to add bookmarks (outlines) to the PDF document.
+             * @param {PDFDocument} pdfDoc - The loaded pdf-lib document instance.
+             * @param {Array<{title: string, pageIndex: number}>} bookmarks - Array of bookmarks to add.
+             */
+            function addBookmarksToPdf(pdfDoc, bookmarks) {
+                if (!bookmarks || bookmarks.length === 0) {
+                    console.warn("No bookmarks provided to addBookmarksToPdf.");
+                    return; // Nothing to do
+                }
+                 // Ensure pdf-lib components are available
+                 if (!PDFName || !PDFString || !PDFNumber || !PDFNull) {
+                     throw new Error("pdf-lib components are not available.");
+                 }
+
+                const pdfContext = pdfDoc.context;
+                const pdfPages = pdfDoc.getPages();
+
+                // Check if pages array is valid and requested page indices exist
+                if (!pdfPages || pdfPages.length === 0) {
+                     throw new Error("PDF document has no pages.");
+                 }
+                 for (const mark of bookmarks) {
+                     if (mark.pageIndex < 0 || mark.pageIndex >= pdfPages.length) {
+                         console.warn(`Invalid page index ${mark.pageIndex} for bookmark "${mark.title}". Skipping.`);
+                         // Optionally filter out invalid bookmarks beforehand
+                         // For now, we'll let pdf-lib handle potential errors if page ref is bad.
+                     }
+                 }
+
+
+                // Create the root outline item reference
+                const rootOutlineRef = pdfContext.nextRef();
+                const outlineItemRefs = [];
+
+                // Helper to create a destination array for a bookmark
+                // [pageRef, /XYZ, left, top, zoom] (null values mean inherit/default)
+                const createDestination = (pageRef) => pdfContext.obj([pageRef, PDFName.of("XYZ"), PDFNull, PDFNull, PDFNull]);
+
+                // Create an outline item (bookmark) dictionary for each entry
+                bookmarks.forEach(bookmarkInfo => {
+                    try {
+                         const pageRef = pdfPages[bookmarkInfo.pageIndex].ref;
+                         const outlineItemRef = pdfContext.nextRef();
+
+                         pdfContext.assign(outlineItemRef, pdfContext.obj({
+                             Title: PDFString.of(bookmarkInfo.title), // The visible bookmark text
+                             Parent: rootOutlineRef,                  // Link to the root outline node
+                             Dest: createDestination(pageRef)         // Link to the page location
+                         }));
+                         outlineItemRefs.push(outlineItemRef);
+                    } catch (pageError) {
+                        // Log if getting pageRef fails for some reason (e.g., invalid index after check)
+                        console.error(`Error creating bookmark for "${bookmarkInfo.title}" on page index ${bookmarkInfo.pageIndex}:`, pageError);
+                    }
+                });
+
+                // If no valid outline items were created, exit
+                 if (outlineItemRefs.length === 0) {
+                     console.warn("No valid outline items could be created.");
+                     return;
+                 }
+
+                // Link the created outline items sequentially (Prev/Next pointers)
+                outlineItemRefs.forEach((ref, index, arr) => {
+                    const outlineItemDict = pdfContext.lookup(ref); // Get the dictionary object
+                    if (index > 0) {
+                        outlineItemDict.set(PDFName.of("Prev"), arr[index - 1]); // Link to previous item
+                    }
+                    if (index < arr.length - 1) {
+                        outlineItemDict.set(PDFName.of("Next"), arr[index + 1]); // Link to next item
+                    }
+                });
+
+                // Create the root outline dictionary
+                pdfContext.assign(rootOutlineRef, pdfContext.obj({
+                    Type: PDFName.of("Outlines"),               // Required type field
+                    First: outlineItemRefs[0],                  // Reference to the first bookmark
+                    Last: outlineItemRefs[outlineItemRefs.length - 1], // Reference to the last bookmark
+                    Count: PDFNumber.of(outlineItemRefs.length) // Number of visible top-level bookmarks
+                }));
+
+                // Attach the outline root to the PDF Catalog
+                pdfDoc.catalog.set(PDFName.of("Outlines"), rootOutlineRef);
+
+                // Optional: Set the PDF viewer to open with the bookmarks panel visible
+                pdfDoc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
+            }
+
+
+            // ---------- UI Helper Functions ----------
+
+            /**
+             * Updates the status message and loader visibility.
+             * @param {string} message - The text message to display.
+             * @param {boolean} showLoader - Whether to show the loading spinner.
+             * @param {boolean} [isError=false] - If true, style message as an error.
+             */
+            function updateStatus(message, showLoader, isError = false) {
+                $statusMessage.textContent = message;
+                $statusMessage.className = `text-sm min-h-[1.25rem] ${isError ? 'text-red-600 font-medium' : 'text-gray-600'}`;
+
+                if (showLoader) {
+                    $loader.classList.remove('hidden');
+                } else {
+                    $loader.classList.add('hidden');
+                }
+            }
+
+            /**
+             * Enables or disables UI elements during processing.
+             * @param {boolean} disable - True to disable, false to enable.
+             */
+            function disableUI(disable) {
+                $pdfFileInput.disabled = disable;
+                $processButton.disabled = disable;
+                // Add visual cues for disabled state if needed (Tailwind's disabled:opacity-50 handles button)
+                $pdfFileInput.classList.toggle('cursor-not-allowed', disable);
+                $pdfFileInput.classList.toggle('bg-gray-100', disable); // Example disabled style
+            }
+
+            /**
+             * Resets the UI to its initial state.
+             * @param {string} [initialMessage="Please select a PDF file to begin."] - Optional message.
+             */
+            function resetUIState(initialMessage = "Please select a PDF file to begin.") {
+                // Only reset file input value if not triggered by file input itself
+                 // $pdfFileInput.value = ""; // Causes issues if called within the 'change' handler itself. Handled in handleFileSelect if needed.
+                currentPdfFile = null;
+                outputFileName = "";
+                $processButton.disabled = true;
+                updateStatus(initialMessage, false); // Hide loader, show message
+                clearDownloadLink();
+                // Ensure UI is enabled if reset is called after an error
+                 disableUI(false);
+            }
+
+             /**
+             * Removes any existing download link.
+             */
+             function clearDownloadLink() {
+                  $downloadArea.innerHTML = ""; // Clear previous link
+             }
+
+            /**
+             * Creates a download link for the processed PDF.
+             * @param {Uint8Array} pdfBytes - The PDF data as bytes.
+             */
+            function createDownloadLink(pdfBytes) {
+                clearDownloadLink(); // Ensure no old links persist
+
+                const blob = new Blob([pdfBytes], { type: "application/pdf" });
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = outputFileName || "bookmarked_document.pdf"; // Use generated name or a default
+                link.textContent = `Download ${link.download}`;
+                link.className = `inline-block bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500
+                                 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition duration-150 ease-in-out`;
+                link.setAttribute('role', 'button'); // Semantically it's a button triggering a download
+
+                // Cleanup the Object URL after a short delay once clicked to ensure download starts
+                link.addEventListener("click", () => {
+                     // Add slight delay for reliability, especially on slower connections/browsers
+                    setTimeout(() => URL.revokeObjectURL(url), 1500);
+                }, { once: true }); // Ensure listener runs only once
+
+                $downloadArea.appendChild(link);
+            }
+
+            // Initialize UI on load
+            resetUIState();
+
+        }); // End DOMContentLoaded
+    </script>
 </body>
 </html>
